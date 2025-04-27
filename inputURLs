@@ -1,0 +1,18 @@
+https://euiwtqaint.morningstar.com/api/rest.svc/6vremlib80/security_details/F0GBR04S23?viewId=esg&idType=MSID&responseViewFormat=json
+
+https://euiwtqaint.morningstar.com/api/rest.svc/6vremlib80/security_details/F0GBR04S23?viewId=esg&idType=MSID&responseViewFormat=json&useInvestmentApi=true
+
+
+LIVE:
+
+https://lt.morningstar.com/api/rest.svc/6vremlib80/security_details/F0GBR04S23?viewId=esg&idType=MSID&responseViewFormat=json
+
+https://lt.morningstar.com/api/rest.svc/6vremlib80/security_details/F0GBR04S23?viewId=esg&idType=MSID&responseViewFormat=json&useInvestmentApi=true
+
+commands to run the project:
+
+python3 -m venv .venv
+ource .venv/bin/activate
+pip install -r requirements.txt
+python3 app.py
+http://127.0.0.1:5001

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>JSON API Comparator</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+
+  <!-- Bootstrap 5 CSS & Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+
+  <style>
+    body { padding-top: 2rem; background: #f8f9fa; }
+    mark { background: #ffc107; color: #212529; }
+    .summary-card { cursor: pointer; transition: transform 0.1s; }
+    .summary-card:hover { transform: translateY(-2px); }
+    .summary-card.active { box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25); }
+    .input-group .form-control { border-left: none; }
+    .input-group .input-group-text { background: white; border-right: none; }
+  </style>
+</head>
+<body>
+
+  <nav class="navbar navbar-dark bg-dark mb-4">
+    <div class="container-fluid">
+      <span class="navbar-brand h1">JSON API Comparator</span>
+    </div>
+  </nav>
+
+  <div class="container">
+
+    <!-- 1) URL Inputs -->
+    <div class="row g-3 align-items-center mb-4">
+      <div class="col-md-5">
+        <label for="urlA" class="form-label">API A URL</label>
+        <input type="text" id="urlA" class="form-control" placeholder="https://...">
+      </div>
+      <div class="col-md-5">
+        <label for="urlB" class="form-label">API B URL</label>
+        <input type="text" id="urlB" class="form-control" placeholder="https://...">
+      </div>
+      <div class="col-md-2 d-grid">
+        <label class="form-label">&nbsp;</label>
+        <button id="btnCompare" class="btn btn-primary btn-lg">Compare</button>
+      </div>
+    </div>
+
+    <!-- 2) Summary Cards (hidden until Compare) -->
+    <div id="summary" class="row mb-4" style="display:none;">
+      <!-- injected via JS -->
+    </div>
+
+    <!-- 3) Search Bar (hidden until Compare) -->
+    <div id="searchGroup" class="row mb-3" style="display:none;">
+      <div class="col-md-6 offset-md-6">
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" id="searchBox" class="form-control form-control-lg shadow-sm"
+                 placeholder="Search JSON paths…">
+        </div>
+      </div>
+    </div>
+
+    <!-- 4) Result Table (hidden until Compare) -->
+    <div id="resultContainer" class="table-responsive" style="display:none;">
+      <table class="table table-striped" id="resultTable">
+        <thead class="table-dark">
+          <tr>
+            <th>Path</th>
+            <th>Value A</th>
+            <th>Value B</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody class="main"></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- Bootstrap JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // 1) JSON comparator
+    function compareNodes(a,b,p=''){
+      const out=[]; function fmt(x){ return x==null?'<i>Missing</i>':x; }
+      function cmp(x,y,path){
+        if(x&&y&&typeof x==='object'&&typeof y==='object'
+           &&!Array.isArray(x)&&!Array.isArray(y)){
+          new Set([...Object.keys(x),...Object.keys(y)])
+            .forEach(k=>{ if(k==='dbgtime')return; cmp(x[k],y[k], path?path+'.'+k:k); });
+        }
+        else if(Array.isArray(x)&&Array.isArray(y)){
+          const n=Math.max(x.length,y.length);
+          for(let i=0;i<n;i++) cmp(x[i],y[i], `${path}[${i}]`);
+        }
+        else {
+          let r;
+          if(JSON.stringify(x)===JSON.stringify(y)) r='matched';
+          else if(x==null)                         r='missing-a';
+          else if(y==null)                         r='missing-b';
+          else                                      r='unmatched';
+          out.push({path, valA:fmt(x), valB:fmt(y), result:r});
+        }
+      }
+      cmp(a,b,p); return out;
+    }
+
+    // 2) Fetch via proxy
+    async function fetchJson(url){
+      const res = await fetch('http://localhost:5001/proxy?url='+encodeURIComponent(url));
+      if(!res.ok) throw new Error(res.status+' '+res.statusText);
+      return res.json();
+    }
+
+    // 3) Main runner
+    async function runCompare(){
+      const A=document.getElementById('urlA').value.trim(),
+            B=document.getElementById('urlB').value.trim();
+      if(!A||!B){ alert('Enter both URLs.'); return; }
+
+      // Hide sections
+      ['summary','searchGroup','resultContainer']
+        .forEach(id=>document.getElementById(id).style.display='none');
+      document.querySelector('#resultTable .main').innerHTML='';
+
+      try {
+        const [a,b]=await Promise.all([fetchJson(A),fetchJson(B)]);
+        const res=compareNodes(a,b);
+
+        // Build summary cards
+        const stats = {
+          all:    res.length,
+          matched:   res.filter(r=>r.result==='matched').length,
+          unmatched: res.filter(r=>r.result==='unmatched').length,
+          'missing-a': res.filter(r=>r.result==='missing-a').length,
+          'missing-b': res.filter(r=>r.result==='missing-b').length
+        };
+        const labels = {
+          all: 'Show All',
+          matched: 'Matched',
+          unmatched: 'Unmatched',
+          'missing-a': 'Missing A',
+          'missing-b': 'Missing B'
+        };
+        const colors = {
+          all:    'primary',
+          matched:   'success',
+          unmatched: 'danger',
+          'missing-a': 'warning',
+          'missing-b': 'warning'
+        };
+        const summ = document.getElementById('summary');
+        summ.innerHTML = '';
+        Object.keys(stats).forEach((key,i) => {
+          const col = document.createElement('div');
+          col.className='col-md-2';
+          col.innerHTML = `
+            <div class="card summary-card text-bg-${colors[key]} mb-3${i===0?' active':''}"
+                 data-filter="${key}">
+              <div class="card-body">
+                <h6 class="card-title">${labels[key]}</h6>
+                <p class="card-text">${stats[key]}</p>
+              </div>
+            </div>`;
+          summ.append(col);
+        });
+        summ.style.display = 'flex';
+
+        // Show search & table
+        document.getElementById('searchGroup').style.display='block';
+        document.getElementById('resultContainer').style.display='block';
+
+        // Populate table
+        const tbody=document.querySelector('#resultTable .main');
+        res.forEach(r=>{
+          const tr=document.createElement('tr');
+          tr.classList.add(r.result);
+          ['matched','unmatched'].includes(r.result)
+            ? tr.classList.add(`table-${r.result==='matched'?'success':'danger'}`)
+            : tr.classList.add('table-warning');
+          tr.innerHTML=`
+            <td>${r.path}</td>
+            <td>${r.valA}</td>
+            <td>${r.valB}</td>
+            <td>${r.result.replace(/-/g,' ')}</td>`;
+          tbody.append(tr);
+        });
+
+        // 4) Hook up summary‐card clicks
+        document.querySelectorAll('.summary-card').forEach(card=>{
+          card.onclick = () => {
+            const f=card.dataset.filter;
+            // filter rows
+            document.querySelectorAll('#resultTable tbody tr')
+              .forEach(r=>r.style.display='none');
+            if(f==='all')
+              document.querySelectorAll('#resultTable tbody tr')
+                .forEach(r=>r.style.display='');
+            else
+              document.querySelectorAll(`#resultTable tr.${f}`)
+                .forEach(r=>r.style.display='');
+            // active state
+            document.querySelectorAll('.summary-card')
+              .forEach(c=>c.classList.remove('active'));
+            card.classList.add('active');
+          };
+        });
+
+        // 5) Search/filter/highlight
+        document.getElementById('searchBox').oninput = e=>{
+          const q=e.target.value.trim().toLowerCase();
+          document.querySelectorAll('#resultTable tbody tr').forEach(row=>{
+            row.innerHTML=row.innerHTML.replace(/<mark>|<\/mark>/g,'');
+            if(!q) row.style.display='';
+            else if(row.textContent.toLowerCase().includes(q)){
+              row.style.display='';
+              row.querySelectorAll('td').forEach(td=>{
+                td.innerHTML = td.textContent
+                  .replace(new RegExp(`(${q})`,'gi'),'<mark>$1</mark>');
+              });
+            } else row.style.display='none';
+          });
+        };
+
+      } catch(err){ alert('Error: '+err.message); }
+    }
+
+    document.getElementById('btnCompare').onclick=runCompare;
+  </script>
+</body>
+</html>
